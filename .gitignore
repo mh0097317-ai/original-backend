@@ -1,3 +1,6 @@
+node_modules/
+mobile/dist/
+.expo/
 __pycache__/
 *.py[cod]
 *.egg-info/

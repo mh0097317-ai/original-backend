@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Fluxo de Caixa",
+    "slug": "fluxo-caixa-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.distribuidora.fluxocaixa"
+    },
+    "android": {
+      "package": "com.distribuidora.fluxocaixa"
+    },
+    "assetBundlePatterns": ["**/*"]
+  }
+}
