@@ -1,214 +1,208 @@
 # schemas.py
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional, List
-from pydantic import BaseModel, EmailStr, field_validator
-from models import CategoriaEnum, StatusVeiculoEnum, StatusReservaEnum, PlanoEnum, TipoNotifEnum
+from typing import Optional
+from decimal import Decimal
+from pydantic import BaseModel, field_validator
+from models import TipoMovimento, TipoConta, StatusMovimento, CategoriaMovimento
 
 
-# ── Auth ───────────────────────────────────────────────────
-class UsuarioCadastro(BaseModel):
+# ── Filiais ────────────────────────────────────────────────
+class FilialCriar(BaseModel):
     nome: str
-    email: EmailStr
-    senha: str
+    cnpj: str
+    endereco: str
+    cidade: str
+    estado: str
     telefone: Optional[str] = None
-    cnh: Optional[str] = None
-    plano: PlanoEnum = PlanoEnum.basico
+    email: Optional[str] = None
 
-class UsuarioLogin(BaseModel):
-    email: EmailStr
-    senha: str
 
-class UsuarioOut(BaseModel):
+class FilialOut(BaseModel):
     id: str
     nome: str
-    email: str
+    cnpj: str
+    endereco: str
+    cidade: str
+    estado: str
     telefone: Optional[str]
-    cnh: Optional[str]
-    foto_url: Optional[str]
-    plano: PlanoEnum
-    idioma: str
-    total_alugueis: int
-    total_gasto: float
+    email: Optional[str]
+    ativa: bool
     criado_em: datetime
     model_config = {"from_attributes": True}
 
-class UsuarioAtualizar(BaseModel):
-    nome: Optional[str] = None
-    telefone: Optional[str] = None
-    cnh: Optional[str] = None
-    plano: Optional[PlanoEnum] = None
-    idioma: Optional[str] = None
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    usuario: UsuarioOut
-
-
-# ── Veículos ───────────────────────────────────────────────
-class VeiculoOut(BaseModel):
-    id: str
+# ── Contas ────────────────────────────────────────────────
+class ContaCriar(BaseModel):
+    filial_id: str
     nome: str
-    marca: str
-    modelo: str
-    ano: int
-    placa: str
-    categoria: CategoriaEnum
-    status: StatusVeiculoEnum
-    preco_dia: float
-    preco_semana: Optional[float]
-    preco_mes: Optional[float]
-    potencia_cv: Optional[int]
-    combustivel: str
-    portas: int
-    lugares: int
-    cambio: str
-    ar_cond: bool
-    gps_integrado: bool
-    foto_url: Optional[str]
-    nota_media: float
-    total_avaliacoes: int
-    model_config = {"from_attributes": True}
+    tipo: TipoConta
+    numero_conta: Optional[str] = None
+    banco: Optional[str] = None
+    saldo_inicial: Decimal = Decimal("0.00")
 
-class CategoriaOut(BaseModel):
+
+class ContaOut(BaseModel):
     id: str
-    slug: CategoriaEnum
+    filial_id: str
     nome: str
-    nome_en: str
-    icone: str
-    descricao: Optional[str]
+    tipo: TipoConta
+    numero_conta: Optional[str]
+    banco: Optional[str]
+    saldo_inicial: Decimal
+    saldo_atual: Decimal
+    ativa: bool
+    criado_em: datetime
     model_config = {"from_attributes": True}
 
 
-# ── Promoções ──────────────────────────────────────────────
-class PromocaoOut(BaseModel):
-    id: str
-    codigo: str
+# ── Movimentos ────────────────────────────────────────────
+class MovimentoCriar(BaseModel):
+    filial_id: str
+    conta_id: str
+    tipo: TipoMovimento
+    categoria: CategoriaMovimento
     descricao: str
-    descricao_en: Optional[str]
-    desconto_pct: int
-    categoria: Optional[CategoriaEnum]
-    min_dias: int
-    valido_ate: datetime
-    model_config = {"from_attributes": True}
-
-class ValidarCupomOut(BaseModel):
-    valido: bool
-    desconto_pct: int = 0
-    descricao: str = ""
-    mensagem: str = ""
-
-
-# ── Reservas ───────────────────────────────────────────────
-class ReservaCriar(BaseModel):
-    veiculo_id: str
-    data_retirada: datetime
-    data_devolucao: datetime
-    local_retirada: str
-    local_devolucao: Optional[str] = None
-    codigo_promo: Optional[str] = None
-    seguro: bool = False
+    valor: Decimal
+    data_movimento: datetime
+    data_competencia: datetime
+    documento: Optional[str] = None
     observacoes: Optional[str] = None
 
-    @field_validator("data_devolucao")
+    @field_validator("valor")
     @classmethod
-    def devolucao_maior_retirada(cls, v, info):
-        if "data_retirada" in info.data and v <= info.data["data_retirada"]:
-            raise ValueError("Data de devolução deve ser posterior à retirada")
+    def valor_positivo(cls, v):
+        if v <= 0:
+            raise ValueError("Valor deve ser maior que zero")
         return v
 
-class ReservaOut(BaseModel):
+
+class MovimentoOut(BaseModel):
     id: str
-    usuario_id: str
-    veiculo_id: str
-    veiculo: Optional[VeiculoOut]
-    status: StatusReservaEnum
-    data_retirada: datetime
-    data_devolucao: datetime
-    local_retirada: str
-    local_devolucao: Optional[str]
-    preco_dia: float
-    total_dias: int
-    subtotal: float
-    desconto_pct: int
-    desconto_valor: float
-    total: float
-    codigo_promo: Optional[str]
-    seguro: bool
+    filial_id: str
+    conta_id: str
+    tipo: TipoMovimento
+    categoria: CategoriaMovimento
+    descricao: str
+    valor: Decimal
+    data_movimento: datetime
+    data_competencia: datetime
+    status: StatusMovimento
+    documento: Optional[str]
+    observacoes: Optional[str]
     criado_em: datetime
     model_config = {"from_attributes": True}
 
-class PrecoReservaOut(BaseModel):
-    total_dias: int
-    preco_dia: float
-    subtotal: float
-    desconto_pct: int
-    desconto_valor: float
-    total: float
+
+# ── Fornecedores ──────────────────────────────────────────
+class FornecedorCriar(BaseModel):
+    nome: str
+    cnpj: str
+    contato: Optional[str] = None
+    email: Optional[str] = None
+    telefone: Optional[str] = None
 
 
-# ── GPS ────────────────────────────────────────────────────
-class GPSEnviar(BaseModel):
-    veiculo_id: str
-    reserva_id: str
-    latitude: float
-    longitude: float
-    velocidade_kmh: int = 0
-    combustivel_pct: int = 100
-    ignicao_ligada: bool = False
-    endereco: Optional[str] = None
-
-class GPSOut(BaseModel):
+class FornecedorOut(BaseModel):
     id: str
-    veiculo_id: str
-    reserva_id: Optional[str]
-    latitude: float
-    longitude: float
-    velocidade_kmh: int
-    combustivel_pct: int
-    ignicao_ligada: bool
-    endereco: Optional[str]
-    registrado_em: datetime
+    nome: str
+    cnpj: str
+    contato: Optional[str]
+    email: Optional[str]
+    telefone: Optional[str]
+    ativo: bool
+    criado_em: datetime
     model_config = {"from_attributes": True}
 
 
-# ── Avaliações ─────────────────────────────────────────────
-class AvaliacaoCriar(BaseModel):
-    reserva_id: str
-    veiculo_id: str
-    nota: int
-    comentario: Optional[str] = None
+# ── Contas a Pagar ────────────────────────────────────────
+class ContaPagarCriar(BaseModel):
+    fornecedor_id: str
+    numero_documento: str
+    descricao: str
+    valor: Decimal
+    data_vencimento: datetime
+    observacoes: Optional[str] = None
 
-    @field_validator("nota")
+    @field_validator("valor")
     @classmethod
-    def nota_valida(cls, v):
-        if not 1 <= v <= 5:
-            raise ValueError("Nota deve ser entre 1 e 5")
+    def valor_positivo(cls, v):
+        if v <= 0:
+            raise ValueError("Valor deve ser maior que zero")
         return v
 
-class AvaliacaoOut(BaseModel):
+
+class ContaPagarOut(BaseModel):
     id: str
-    reserva_id: str
-    usuario_id: str
-    veiculo_id: str
-    nota: int
-    comentario: Optional[str]
+    fornecedor_id: str
+    numero_documento: str
+    descricao: str
+    valor: Decimal
+    data_vencimento: datetime
+    data_pagamento: Optional[datetime]
+    pago: bool
+    observacoes: Optional[str]
     criado_em: datetime
-    usuario_nome: Optional[str] = None
     model_config = {"from_attributes": True}
 
 
-# ── Notificações ───────────────────────────────────────────
-class NotificacaoOut(BaseModel):
+# ── Contas a Receber ──────────────────────────────────────
+class ContaReceberCriar(BaseModel):
+    cliente_nome: str
+    cliente_cnpj: Optional[str] = None
+    numero_documento: str
+    descricao: str
+    valor: Decimal
+    data_vencimento: datetime
+    observacoes: Optional[str] = None
+
+    @field_validator("valor")
+    @classmethod
+    def valor_positivo(cls, v):
+        if v <= 0:
+            raise ValueError("Valor deve ser maior que zero")
+        return v
+
+
+class ContaReceberOut(BaseModel):
     id: str
-    tipo: TipoNotifEnum
-    titulo: str
-    mensagem: str
-    lida: bool
-    dados: Optional[str]
+    cliente_nome: str
+    cliente_cnpj: Optional[str]
+    numero_documento: str
+    descricao: str
+    valor: Decimal
+    data_vencimento: datetime
+    data_recebimento: Optional[datetime]
+    recebido: bool
+    observacoes: Optional[str]
     criado_em: datetime
     model_config = {"from_attributes": True}
+
+
+# ── Relatórios ────────────────────────────────────────────
+class FluxoDeCaixaOut(BaseModel):
+    data: datetime
+    saldo_inicial: Decimal
+    entradas: Decimal
+    saidas: Decimal
+    saldo_final: Decimal
+
+
+class DREOut(BaseModel):
+    periodo: str
+    receitas_vendas: Decimal
+    despesas_operacionais: Decimal
+    folha_pagamento: Decimal
+    impostos: Decimal
+    resultado_liquido: Decimal
+
+
+class ResumoContasOut(BaseModel):
+    total_contas_pagar: Decimal
+    total_contas_receber: Decimal
+    saldo_geral: Decimal
+    contas_pagar_vencidas: int
+    contas_receber_vencidas: int
 
 
 # ── Genérico ───────────────────────────────────────────────
