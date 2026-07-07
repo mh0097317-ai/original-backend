@@ -1,128 +1,148 @@
 # routers/auth.py
-from datetime import datetime, timedelta
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
-from database import get_db, settings
-from models import Usuario
-from schemas import UsuarioCadastro, UsuarioLogin, UsuarioOut, UsuarioAtualizar, Token, Mensagem
+from database import get_db
+from models import Usuario, Filial, RoleEnum, AcaoAudit
+from schemas import UsuarioCadastro, UsuarioLogin, UsuarioOut, Token, TrocarSenha, Mensagem, Pagina
+from security import (
+    hash_senha, verificar_senha, criar_token,
+    get_usuario_atual, requer_admin, registrar_audit,
+)
 
-router = APIRouter(prefix="/auth", tags=["Autenticação"])
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-
-def hash_senha(senha: str) -> str:
-    return pwd_context.hash(senha)
+router = APIRouter(prefix="/api/auth", tags=["Autenticação"])
 
 
-def verificar_senha(senha: str, hash: str) -> bool:
-    return pwd_context.verify(senha, hash)
+async def _validar_filial(db: AsyncSession, filial_id: str):
+    filial = await db.execute(select(Filial).where(Filial.id == filial_id))
+    if not filial.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Filial não encontrada")
 
 
-def criar_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    payload = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    payload.update({"exp": expire})
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-
-
-async def get_usuario_atual(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
-) -> Usuario:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token inválido ou expirado",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-
-    result = await db.execute(select(Usuario).where(Usuario.id == user_id))
-    usuario = result.scalar_one_or_none()
-    if usuario is None or not usuario.ativo:
-        raise credentials_exception
-    return usuario
-
-
-# ── Endpoints ──────────────────────────────────────────────
-
-@router.post("/cadastro", response_model=Token, status_code=201)
+@router.post("/cadastro", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def cadastrar(dados: UsuarioCadastro, db: AsyncSession = Depends(get_db)):
-    # Verifica e-mail duplicado
-    result = await db.execute(select(Usuario).where(Usuario.email == dados.email))
-    if result.scalar_one_or_none():
-        raise HTTPException(400, "E-mail já cadastrado")
+    """Cria um usuário.
+
+    O primeiro usuário do sistema é criado como admin sem autenticação
+    (bootstrap). A partir daí, somente admins podem cadastrar usuários —
+    use POST /api/auth/usuarios.
+    """
+    total = await db.execute(select(func.count(Usuario.id)))
+    primeiro_usuario = (total.scalar() or 0) == 0
+
+    if not primeiro_usuario:
+        raise HTTPException(
+            status_code=403,
+            detail="Sistema já inicializado. Apenas admins cadastram novos usuários (POST /api/auth/usuarios).",
+        )
+
+    existe = await db.execute(select(Usuario).where(Usuario.email == dados.email))
+    if existe.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado")
 
     usuario = Usuario(
         nome=dados.nome,
         email=dados.email,
         senha_hash=hash_senha(dados.senha),
-        telefone=dados.telefone,
-        cnh=dados.cnh,
-        plano=dados.plano,
+        role=RoleEnum.admin,  # bootstrap → admin
+        filial_id=None,
     )
     db.add(usuario)
     await db.flush()
+    await registrar_audit(db, usuario, AcaoAudit.criar, "usuario", usuario.id,
+                          {"email": usuario.email, "role": usuario.role.value})
+    return Token(access_token=criar_token({"sub": usuario.id}),
+                 usuario=UsuarioOut.model_validate(usuario))
 
-    token = criar_token({"sub": usuario.id})
-    return Token(access_token=token, usuario=UsuarioOut.model_validate(usuario))
+
+@router.post("/usuarios", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED)
+async def criar_usuario(
+    dados: UsuarioCadastro,
+    db: AsyncSession = Depends(get_db),
+    admin: Usuario = Depends(requer_admin),
+):
+    existe = await db.execute(select(Usuario).where(Usuario.email == dados.email))
+    if existe.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+
+    if dados.role != RoleEnum.admin:
+        if not dados.filial_id:
+            raise HTTPException(status_code=400, detail="Gestor/visualizador exige filial_id")
+        await _validar_filial(db, dados.filial_id)
+
+    usuario = Usuario(
+        nome=dados.nome,
+        email=dados.email,
+        senha_hash=hash_senha(dados.senha),
+        role=dados.role,
+        filial_id=dados.filial_id if dados.role != RoleEnum.admin else None,
+    )
+    db.add(usuario)
+    await db.flush()
+    await registrar_audit(db, admin, AcaoAudit.criar, "usuario", usuario.id,
+                          {"email": usuario.email, "role": usuario.role.value})
+    return usuario
+
+
+@router.get("/usuarios", response_model=Pagina[UsuarioOut])
+async def listar_usuarios(
+    skip: int = 0,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    admin: Usuario = Depends(requer_admin),
+):
+    limit = min(limit, 200)
+    total = await db.execute(select(func.count(Usuario.id)))
+    result = await db.execute(select(Usuario).offset(skip).limit(limit))
+    return Pagina(total=total.scalar() or 0, skip=skip, limit=limit,
+                  items=list(result.scalars().all()))
 
 
 @router.post("/login", response_model=Token)
 async def login(dados: UsuarioLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Usuario).where(Usuario.email == dados.email))
     usuario = result.scalar_one_or_none()
-
     if not usuario or not verificar_senha(dados.senha, usuario.senha_hash):
-        raise HTTPException(401, "E-mail ou senha incorretos")
-
+        raise HTTPException(status_code=401, detail="E-mail ou senha incorretos")
     if not usuario.ativo:
-        raise HTTPException(403, "Conta desativada")
+        raise HTTPException(status_code=403, detail="Conta desativada")
 
-    token = criar_token({"sub": usuario.id})
-    return Token(access_token=token, usuario=UsuarioOut.model_validate(usuario))
+    await registrar_audit(db, usuario, AcaoAudit.login, "usuario", usuario.id)
+    return Token(access_token=criar_token({"sub": usuario.id}),
+                 usuario=UsuarioOut.model_validate(usuario))
+
+
+@router.post("/token", response_model=Token)
+async def login_oauth(
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+):
+    """Endpoint OAuth2 (form) para o botão Authorize do Swagger. username = e-mail."""
+    result = await db.execute(select(Usuario).where(Usuario.email == form.username))
+    usuario = result.scalar_one_or_none()
+    if not usuario or not verificar_senha(form.password, usuario.senha_hash):
+        raise HTTPException(status_code=401, detail="E-mail ou senha incorretos")
+    if not usuario.ativo:
+        raise HTTPException(status_code=403, detail="Conta desativada")
+    return Token(access_token=criar_token({"sub": usuario.id}),
+                 usuario=UsuarioOut.model_validate(usuario))
 
 
 @router.get("/me", response_model=UsuarioOut)
 async def meu_perfil(usuario: Usuario = Depends(get_usuario_atual)):
-    return UsuarioOut.model_validate(usuario)
-
-
-@router.patch("/me", response_model=UsuarioOut)
-async def atualizar_perfil(
-    dados: UsuarioAtualizar,
-    usuario: Usuario = Depends(get_usuario_atual),
-    db: AsyncSession = Depends(get_db),
-):
-    for campo, valor in dados.model_dump(exclude_none=True).items():
-        setattr(usuario, campo, valor)
-    usuario.atualizado_em = datetime.utcnow()
-    await db.flush()
-    return UsuarioOut.model_validate(usuario)
+    return usuario
 
 
 @router.post("/trocar-senha", response_model=Mensagem)
 async def trocar_senha(
-    senha_atual: str,
-    nova_senha: str,
+    dados: TrocarSenha,
     usuario: Usuario = Depends(get_usuario_atual),
     db: AsyncSession = Depends(get_db),
 ):
-    if not verificar_senha(senha_atual, usuario.senha_hash):
-        raise HTTPException(400, "Senha atual incorreta")
-    usuario.senha_hash = hash_senha(nova_senha)
-    await db.flush()
+    if not verificar_senha(dados.senha_atual, usuario.senha_hash):
+        raise HTTPException(status_code=400, detail="Senha atual incorreta")
+    usuario.senha_hash = hash_senha(dados.nova_senha)
+    db.add(usuario)
     return Mensagem(mensagem="Senha alterada com sucesso")

@@ -9,7 +9,10 @@ from sqlalchemy import select
 from database import engine, AsyncSessionLocal, Base
 from models import Filial, Conta, Movimento, Fornecedor, ContaPagar, ContaReceber
 from models import TipoConta, TipoMovimento, CategoriaMovimento
-from routers import filiais, contas, movimentos, fornecedores, contas_pagar, contas_receber, relatorios
+from routers import (
+    auth, filiais, contas, movimentos, fornecedores,
+    contas_pagar, contas_receber, relatorios, auditoria,
+)
 
 
 # ── Seed: dados iniciais ───────────────────────────────────
@@ -113,6 +116,7 @@ app.add_middleware(
 )
 
 # Incluir routers
+app.include_router(auth.router)
 app.include_router(filiais.router)
 app.include_router(contas.router)
 app.include_router(movimentos.router)
@@ -120,6 +124,7 @@ app.include_router(fornecedores.router)
 app.include_router(contas_pagar.router)
 app.include_router(contas_receber.router)
 app.include_router(relatorios.router)
+app.include_router(auditoria.router)
 
 
 @app.get("/", tags=["Status"])

@@ -1,10 +1,73 @@
 # schemas.py
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Generic, TypeVar
 from decimal import Decimal
-from pydantic import BaseModel, field_validator
-from models import TipoMovimento, TipoConta, StatusMovimento, CategoriaMovimento
+from pydantic import BaseModel, EmailStr, field_validator
+from models import (
+    TipoMovimento, TipoConta, StatusMovimento, CategoriaMovimento,
+    RoleEnum, AcaoAudit,
+)
+
+T = TypeVar("T")
+
+
+# ── Paginação genérica ────────────────────────────────────
+class Pagina(BaseModel, Generic[T]):
+    total: int
+    skip: int
+    limit: int
+    items: list[T]
+
+
+# ── Autenticação ──────────────────────────────────────────
+class UsuarioCadastro(BaseModel):
+    nome: str
+    email: EmailStr
+    senha: str
+    role: RoleEnum = RoleEnum.visualizador
+    filial_id: Optional[str] = None
+
+    @field_validator("senha")
+    @classmethod
+    def senha_forte(cls, v):
+        if len(v) < 6:
+            raise ValueError("Senha deve ter ao menos 6 caracteres")
+        return v
+
+
+class UsuarioLogin(BaseModel):
+    email: EmailStr
+    senha: str
+
+
+class UsuarioOut(BaseModel):
+    id: str
+    nome: str
+    email: str
+    role: RoleEnum
+    filial_id: Optional[str]
+    ativo: bool
+    criado_em: datetime
+    model_config = {"from_attributes": True}
+
+
+class TrocarSenha(BaseModel):
+    senha_atual: str
+    nova_senha: str
+
+    @field_validator("nova_senha")
+    @classmethod
+    def senha_forte(cls, v):
+        if len(v) < 6:
+            raise ValueError("Nova senha deve ter ao menos 6 caracteres")
+        return v
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    usuario: UsuarioOut
 
 
 # ── Filiais ────────────────────────────────────────────────
@@ -42,6 +105,13 @@ class ContaCriar(BaseModel):
     saldo_inicial: Decimal = Decimal("0.00")
 
 
+class ContaAtualizar(BaseModel):
+    nome: Optional[str] = None
+    tipo: Optional[TipoConta] = None
+    numero_conta: Optional[str] = None
+    banco: Optional[str] = None
+
+
 class ContaOut(BaseModel):
     id: str
     filial_id: str
@@ -58,7 +128,6 @@ class ContaOut(BaseModel):
 
 # ── Movimentos ────────────────────────────────────────────
 class MovimentoCriar(BaseModel):
-    filial_id: str
     conta_id: str
     tipo: TipoMovimento
     categoria: CategoriaMovimento
@@ -90,6 +159,7 @@ class MovimentoOut(BaseModel):
     status: StatusMovimento
     documento: Optional[str]
     observacoes: Optional[str]
+    criado_por: Optional[str]
     criado_em: datetime
     model_config = {"from_attributes": True}
 
@@ -175,6 +245,19 @@ class ContaReceberOut(BaseModel):
     data_recebimento: Optional[datetime]
     recebido: bool
     observacoes: Optional[str]
+    criado_em: datetime
+    model_config = {"from_attributes": True}
+
+
+# ── Auditoria ─────────────────────────────────────────────
+class AuditLogOut(BaseModel):
+    id: str
+    usuario_id: Optional[str]
+    usuario_nome: Optional[str]
+    acao: AcaoAudit
+    entidade: str
+    entidade_id: Optional[str]
+    detalhes: Optional[str]
     criado_em: datetime
     model_config = {"from_attributes": True}
 

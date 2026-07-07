@@ -1,23 +1,27 @@
 # routers/relatorios.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from collections import OrderedDict
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from database import AsyncSessionLocal
+from database import get_db
 from models import (
-    Movimento, Conta, ContaPagar, ContaReceber,
-    TipoMovimento, CategoriaMovimento, StatusMovimento
+    Movimento, Conta, ContaPagar, ContaReceber, Usuario,
+    TipoMovimento, CategoriaMovimento, StatusMovimento,
 )
 from schemas import FluxoDeCaixaOut, DREOut, ResumoContasOut
+from security import get_usuario_atual, filial_permitida
 
 router = APIRouter(prefix="/api/relatorios", tags=["Relatórios"])
 
+ZERO = Decimal("0.00")
 
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
+
+def _checar_acesso(usuario: Usuario, filial_id: str):
+    if not filial_permitida(usuario, filial_id):
+        raise HTTPException(status_code=403, detail="Sem acesso a esta filial")
 
 
 @router.get("/fluxo-caixa", response_model=list[FluxoDeCaixaOut])
@@ -25,53 +29,57 @@ async def fluxo_caixa(
     filial_id: str,
     data_inicio: datetime,
     data_fim: datetime,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(get_usuario_atual),
 ):
-    query = select(Movimento).where(
-        Movimento.filial_id == filial_id,
-        Movimento.data_movimento >= data_inicio,
-        Movimento.data_movimento <= data_fim,
-        Movimento.status == StatusMovimento.confirmado
-    ).order_by(Movimento.data_movimento)
+    """Fluxo de caixa diário: saldo de abertura, entradas, saídas e saldo final por dia."""
+    _checar_acesso(usuario, filial_id)
 
-    result = await db.execute(query)
-    movimentos = result.scalars().all()
+    # Saldo de abertura = saldo inicial das contas + movimentos confirmados antes do período
+    contas = await db.execute(select(Conta).where(Conta.filial_id == filial_id))
+    saldo_abertura = sum((c.saldo_inicial for c in contas.scalars().all()), ZERO)
 
-    conta_query = select(Conta).where(Conta.filial_id == filial_id)
-    conta_result = await db.execute(conta_query)
-    contas = conta_result.scalars().all()
+    anteriores = await db.execute(
+        select(Movimento).where(
+            Movimento.filial_id == filial_id,
+            Movimento.status == StatusMovimento.confirmado,
+            Movimento.data_movimento < data_inicio,
+        )
+    )
+    for m in anteriores.scalars().all():
+        saldo_abertura += m.valor if m.tipo == TipoMovimento.entrada else -m.valor
 
-    saldo_inicial = sum(c.saldo_inicial for c in contas)
+    # Movimentos do período agrupados por dia
+    result = await db.execute(
+        select(Movimento).where(
+            Movimento.filial_id == filial_id,
+            Movimento.status == StatusMovimento.confirmado,
+            Movimento.data_movimento >= data_inicio,
+            Movimento.data_movimento <= data_fim,
+        ).order_by(Movimento.data_movimento)
+    )
+    por_dia: "OrderedDict[datetime, dict]" = OrderedDict()
+    for m in result.scalars().all():
+        dia = datetime.combine(m.data_movimento.date(), datetime.min.time())
+        bucket = por_dia.setdefault(dia, {"entradas": ZERO, "saidas": ZERO})
+        if m.tipo == TipoMovimento.entrada:
+            bucket["entradas"] += m.valor
+        else:
+            bucket["saidas"] += m.valor
 
     fluxo = []
-    saldo_atual = saldo_inicial
-    data_anterior = data_inicio.date()
-
-    for movimento in movimentos:
-        if movimento.data_movimento.date() != data_anterior:
-            fluxo.append(FluxoDeCaixaOut(
-                data=datetime.combine(data_anterior, datetime.min.time()),
-                saldo_inicial=saldo_inicial if data_anterior == data_inicio.date() else saldo_atual,
-                entradas=Decimal("0"),
-                saidas=Decimal("0"),
-                saldo_final=saldo_atual
-            ))
-
-        if movimento.tipo == TipoMovimento.entrada:
-            saldo_atual += movimento.valor
-        else:
-            saldo_atual -= movimento.valor
-
-        data_anterior = movimento.data_movimento.date()
-
-    if movimentos:
+    saldo_corrente = saldo_abertura
+    for dia, vals in por_dia.items():
+        inicial = saldo_corrente
+        final = inicial + vals["entradas"] - vals["saidas"]
         fluxo.append(FluxoDeCaixaOut(
-            data=datetime.combine(data_anterior, datetime.min.time()),
-            saldo_inicial=saldo_inicial if data_anterior == data_inicio.date() else saldo_atual,
-            entradas=Decimal("0"),
-            saidas=Decimal("0"),
-            saldo_final=saldo_atual
+            data=dia,
+            saldo_inicial=inicial,
+            entradas=vals["entradas"],
+            saidas=vals["saidas"],
+            saldo_final=final,
         ))
+        saldo_corrente = final
 
     return fluxo
 
@@ -81,107 +89,92 @@ async def demonstrativo_resultado(
     filial_id: str,
     mes: int,
     ano: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(get_usuario_atual),
 ):
+    _checar_acesso(usuario, filial_id)
+    if not 1 <= mes <= 12:
+        raise HTTPException(status_code=400, detail="Mês inválido")
+
     data_inicio = datetime(ano, mes, 1)
-    if mes == 12:
-        data_fim = datetime(ano + 1, 1, 1) - timedelta(days=1)
-    else:
-        data_fim = datetime(ano, mes + 1, 1) - timedelta(days=1)
+    data_fim = (datetime(ano + 1, 1, 1) if mes == 12 else datetime(ano, mes + 1, 1)) - timedelta(seconds=1)
 
-    query = select(Movimento).where(
-        Movimento.filial_id == filial_id,
-        Movimento.data_competencia >= data_inicio,
-        Movimento.data_competencia <= data_fim,
-        Movimento.status == StatusMovimento.confirmado
+    result = await db.execute(
+        select(Movimento).where(
+            Movimento.filial_id == filial_id,
+            Movimento.status == StatusMovimento.confirmado,
+            Movimento.data_competencia >= data_inicio,
+            Movimento.data_competencia <= data_fim,
+        )
     )
+    movs = result.scalars().all()
 
-    result = await db.execute(query)
-    movimentos = result.scalars().all()
+    def soma(tipo, categoria):
+        return sum((m.valor for m in movs if m.tipo == tipo and m.categoria == categoria), ZERO)
 
-    receitas_vendas = sum(
-        m.valor for m in movimentos
-        if m.tipo == TipoMovimento.entrada and m.categoria == CategoriaMovimento.vendas
-    )
-
-    despesas_operacionais = sum(
-        m.valor for m in movimentos
-        if m.tipo == TipoMovimento.saida and m.categoria == CategoriaMovimento.despesa_operacional
-    )
-
-    folha_pagamento = sum(
-        m.valor for m in movimentos
-        if m.tipo == TipoMovimento.saida and m.categoria == CategoriaMovimento.folha_pagamento
-    )
-
-    impostos = sum(
-        m.valor for m in movimentos
-        if m.tipo == TipoMovimento.saida and m.categoria == CategoriaMovimento.impostos
-    )
-
-    resultado_liquido = receitas_vendas - despesas_operacionais - folha_pagamento - impostos
+    receitas = soma(TipoMovimento.entrada, CategoriaMovimento.vendas)
+    despesas = soma(TipoMovimento.saida, CategoriaMovimento.despesa_operacional)
+    folha = soma(TipoMovimento.saida, CategoriaMovimento.folha_pagamento)
+    impostos = soma(TipoMovimento.saida, CategoriaMovimento.impostos)
+    resultado = receitas - despesas - folha - impostos
 
     return DREOut(
         periodo=f"{mes:02d}/{ano}",
-        receitas_vendas=receitas_vendas,
-        despesas_operacionais=despesas_operacionais,
-        folha_pagamento=folha_pagamento,
+        receitas_vendas=receitas,
+        despesas_operacionais=despesas,
+        folha_pagamento=folha,
         impostos=impostos,
-        resultado_liquido=resultado_liquido
+        resultado_liquido=resultado,
     )
 
 
 @router.get("/resumo-contas", response_model=ResumoContasOut)
-async def resumo_contas(filial_id: str = None, db: AsyncSession = Depends(get_db)):
-    query_pagar = select(func.sum(ContaPagar.valor)).where(ContaPagar.pago == False)
-    query_receber = select(func.sum(ContaReceber.valor)).where(ContaReceber.recebido == False)
+async def resumo_contas(db: AsyncSession = Depends(get_db), usuario: Usuario = Depends(get_usuario_atual)):
+    total_pagar = (await db.execute(
+        select(func.coalesce(func.sum(ContaPagar.valor), 0)).where(ContaPagar.pago == False)  # noqa: E712
+    )).scalar()
+    total_receber = (await db.execute(
+        select(func.coalesce(func.sum(ContaReceber.valor), 0)).where(ContaReceber.recebido == False)  # noqa: E712
+    )).scalar()
 
-    total_pagar = await db.execute(query_pagar)
-    total_receber = await db.execute(query_receber)
+    tp = Decimal(str(total_pagar or 0))
+    tr = Decimal(str(total_receber or 0))
 
-    tp = total_pagar.scalar() or Decimal("0")
-    tr = total_receber.scalar() or Decimal("0")
-
-    saldo_geral = tr - tp
-
-    vencidas_pagar = await db.execute(
+    venc_pagar = (await db.execute(
         select(func.count(ContaPagar.id)).where(
             ContaPagar.data_vencimento < datetime.utcnow(),
-            ContaPagar.pago == False
+            ContaPagar.pago == False,  # noqa: E712
         )
-    )
-
-    vencidas_receber = await db.execute(
+    )).scalar()
+    venc_receber = (await db.execute(
         select(func.count(ContaReceber.id)).where(
             ContaReceber.data_vencimento < datetime.utcnow(),
-            ContaReceber.recebido == False
+            ContaReceber.recebido == False,  # noqa: E712
         )
-    )
+    )).scalar()
 
     return ResumoContasOut(
         total_contas_pagar=tp,
         total_contas_receber=tr,
-        saldo_geral=saldo_geral,
-        contas_pagar_vencidas=vencidas_pagar.scalar() or 0,
-        contas_receber_vencidas=vencidas_receber.scalar() or 0
+        saldo_geral=tr - tp,
+        contas_pagar_vencidas=venc_pagar or 0,
+        contas_receber_vencidas=venc_receber or 0,
     )
 
 
 @router.get("/saldo-contas")
-async def saldo_contas(filial_id: str, db: AsyncSession = Depends(get_db)):
-    query = select(Conta).where(Conta.filial_id == filial_id, Conta.ativa == True)
-    result = await db.execute(query)
+async def saldo_contas(filial_id: str, db: AsyncSession = Depends(get_db),
+                       usuario: Usuario = Depends(get_usuario_atual)):
+    _checar_acesso(usuario, filial_id)
+    result = await db.execute(
+        select(Conta).where(Conta.filial_id == filial_id, Conta.ativa == True)  # noqa: E712
+    )
     contas = result.scalars().all()
-
     return {
-        "saldo_total": sum(c.saldo_atual for c in contas),
+        "filial_id": filial_id,
+        "saldo_total": float(sum((c.saldo_atual for c in contas), ZERO)),
         "contas": [
-            {
-                "id": c.id,
-                "nome": c.nome,
-                "tipo": c.tipo.value,
-                "saldo": float(c.saldo_atual)
-            }
+            {"id": c.id, "nome": c.nome, "tipo": c.tipo.value, "saldo": float(c.saldo_atual)}
             for c in contas
-        ]
+        ],
     }
