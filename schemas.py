@@ -6,7 +6,7 @@ from decimal import Decimal
 from pydantic import BaseModel, EmailStr, field_validator
 from models import (
     TipoMovimento, TipoConta, StatusMovimento, CategoriaMovimento,
-    RoleEnum, AcaoAudit,
+    RoleEnum, AcaoAudit, StatusConciliacao,
 )
 
 T = TypeVar("T")
@@ -286,6 +286,79 @@ class ResumoContasOut(BaseModel):
     saldo_geral: Decimal
     contas_pagar_vencidas: int
     contas_receber_vencidas: int
+
+
+# ── Conciliação bancária (Pluggy) ─────────────────────────
+class ConexaoBancariaCriar(BaseModel):
+    conta_id: str
+    pluggy_item_id: str
+    pluggy_account_id: str
+    banco_nome: Optional[str] = None
+
+
+class ConexaoBancariaOut(BaseModel):
+    id: str
+    filial_id: str
+    conta_id: str
+    pluggy_item_id: str
+    pluggy_account_id: str
+    banco_nome: Optional[str]
+    ativa: bool
+    ultima_importacao: Optional[datetime]
+    criado_em: datetime
+    model_config = {"from_attributes": True}
+
+
+class TransacaoBancariaOut(BaseModel):
+    id: str
+    conexao_id: str
+    conta_id: str
+    pluggy_transaction_id: str
+    descricao: str
+    tipo: TipoMovimento
+    valor: Decimal
+    data: datetime
+    status_conciliacao: StatusConciliacao
+    movimento_id: Optional[str]
+    criado_em: datetime
+    model_config = {"from_attributes": True}
+
+
+class ImportarExtratoIn(BaseModel):
+    data_inicio: datetime
+    data_fim: datetime
+
+
+class ImportacaoOut(BaseModel):
+    importadas: int
+    ja_existentes: int
+
+
+class ConciliacaoResultadoOut(BaseModel):
+    conciliadas: int
+    divergentes: int
+    pendentes: int
+
+
+class ConciliarManualIn(BaseModel):
+    movimento_id: str
+
+
+class LancarTransacaoIn(BaseModel):
+    categoria: CategoriaMovimento = CategoriaMovimento.outro
+    descricao: Optional[str] = None
+
+
+class ConnectTokenOut(BaseModel):
+    access_token: str
+
+
+class ResumoConciliacaoOut(BaseModel):
+    total: int
+    conciliadas: int
+    divergentes: int
+    pendentes: int
+    ignoradas: int
 
 
 # ── Genérico ───────────────────────────────────────────────

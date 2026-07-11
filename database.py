@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
+    # Integração Pluggy (Open Finance) — opcional; sem credenciais a
+    # conciliação bancária responde 503 e o resto do sistema funciona normal
+    PLUGGY_CLIENT_ID: str = ""
+    PLUGGY_CLIENT_SECRET: str = ""
 
     class Config:
         env_file = ".env"

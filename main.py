@@ -11,7 +11,7 @@ from models import Filial, Conta, Movimento, Fornecedor, ContaPagar, ContaRecebe
 from models import TipoConta, TipoMovimento, CategoriaMovimento
 from routers import (
     auth, filiais, contas, movimentos, fornecedores,
-    contas_pagar, contas_receber, relatorios, auditoria,
+    contas_pagar, contas_receber, relatorios, auditoria, conciliacao,
 )
 
 
@@ -125,6 +125,7 @@ app.include_router(contas_pagar.router)
 app.include_router(contas_receber.router)
 app.include_router(relatorios.router)
 app.include_router(auditoria.router)
+app.include_router(conciliacao.router)
 
 
 @app.get("/", tags=["Status"])

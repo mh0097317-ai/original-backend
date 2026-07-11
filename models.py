@@ -57,6 +57,15 @@ class AcaoAudit(str, enum.Enum):
     pagar = "pagar"
     receber = "receber"
     login = "login"
+    importar = "importar"
+    conciliar = "conciliar"
+
+
+class StatusConciliacao(str, enum.Enum):
+    pendente = "pendente"        # importada, ainda não processada
+    conciliado = "conciliado"    # casou com um movimento do caixa
+    divergente = "divergente"    # sem movimento correspondente no caixa
+    ignorado = "ignorado"        # marcada manualmente como não relevante
 
 
 # ── Models ─────────────────────────────────────────────────
@@ -203,6 +212,53 @@ class ContaReceber(Base):
     criado_por = Column(GUID, ForeignKey("usuarios.id"), nullable=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
     atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ConexaoBancaria(Base):
+    """Vincula uma conta do sistema a uma conta bancária real via Pluggy (Open Finance)."""
+    __tablename__ = "conexoes_bancarias"
+
+    id = Column(GUID, primary_key=True, default=gen_uuid)
+    filial_id = Column(GUID, ForeignKey("filiais.id"), nullable=False)
+    conta_id = Column(GUID, ForeignKey("contas.id"), nullable=False)
+
+    pluggy_item_id = Column(String(64), nullable=False)      # conexão no Pluggy
+    pluggy_account_id = Column(String(64), nullable=False)   # conta bancária dentro do item
+    banco_nome = Column(String(150))
+
+    ativa = Column(Boolean, default=True)
+    ultima_importacao = Column(DateTime, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    atualizado_em = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    conta = relationship("Conta")
+
+
+class TransacaoBancaria(Base):
+    """Transação importada do extrato bancário (via Pluggy) para conciliação."""
+    __tablename__ = "transacoes_bancarias"
+    __table_args__ = (
+        Index("ix_transb_conta_status", "conta_id", "status_conciliacao"),
+    )
+
+    id = Column(GUID, primary_key=True, default=gen_uuid)
+    conexao_id = Column(GUID, ForeignKey("conexoes_bancarias.id"), nullable=False)
+    conta_id = Column(GUID, ForeignKey("contas.id"), nullable=False)
+
+    pluggy_transaction_id = Column(String(64), unique=True, nullable=False)
+    descricao = Column(String(300), nullable=False)
+    tipo = Column(SAEnum(TipoMovimento), nullable=False)     # entrada (crédito) / saida (débito)
+    valor = Column(Numeric(14, 2), nullable=False)           # sempre positivo
+    data = Column(DateTime, nullable=False)
+
+    status_conciliacao = Column(SAEnum(StatusConciliacao),
+                                default=StatusConciliacao.pendente, nullable=False)
+    movimento_id = Column(GUID, ForeignKey("movimentos.id"), nullable=True)
+
+    criado_em = Column(DateTime, default=datetime.utcnow)
+
+    conexao = relationship("ConexaoBancaria")
+    movimento = relationship("Movimento")
 
 
 class AuditLog(Base):
