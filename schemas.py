@@ -6,7 +6,7 @@ from decimal import Decimal
 from pydantic import BaseModel, EmailStr, field_validator
 from models import (
     TipoMovimento, TipoConta, StatusMovimento, CategoriaMovimento,
-    RoleEnum, AcaoAudit, StatusConciliacao,
+    RoleEnum, AcaoAudit, StatusConciliacao, TipoMensagem,
 )
 
 T = TypeVar("T")
@@ -359,6 +359,34 @@ class ResumoConciliacaoOut(BaseModel):
     divergentes: int
     pendentes: int
     ignoradas: int
+
+
+# ── Chat da equipe ────────────────────────────────────────
+class MensagemChatCriar(BaseModel):
+    tipo: TipoMensagem = TipoMensagem.texto
+    conteudo: str
+    duracao_seg: Optional[int] = None
+
+    @field_validator("conteudo")
+    @classmethod
+    def conteudo_valido(cls, v, info):
+        if not v or not v.strip():
+            raise ValueError("Mensagem vazia")
+        # áudio em base64 limitado a ~2 MB (≈ 90s de gravação em m4a)
+        if len(v) > 2_800_000:
+            raise ValueError("Áudio muito longo — grave até ~90 segundos")
+        return v
+
+
+class MensagemChatOut(BaseModel):
+    id: str
+    usuario_id: str
+    usuario_nome: str
+    tipo: TipoMensagem
+    conteudo: str
+    duracao_seg: Optional[int]
+    criado_em: datetime
+    model_config = {"from_attributes": True}
 
 
 # ── Genérico ───────────────────────────────────────────────

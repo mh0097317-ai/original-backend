@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
@@ -12,6 +12,9 @@ import MovimentosScreen from './src/screens/MovimentosScreen';
 import NovoMovimentoScreen from './src/screens/NovoMovimentoScreen';
 import ContasScreen from './src/screens/ContasScreen';
 import ConciliacaoScreen from './src/screens/ConciliacaoScreen';
+import ChatScreen from './src/screens/ChatScreen';
+import LockScreen from './src/screens/LockScreen';
+import { biometriaAtiva, biometriaDisponivel } from './src/biometria';
 import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
@@ -62,19 +65,42 @@ function Tabs() {
           tabBarIcon: (p) => <TabIcon emoji="🏦" {...p} />,
         }}
       />
+      <Tab.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={{
+          title: 'Equipe',
+          tabBarIcon: (p) => <TabIcon emoji="💬" {...p} />,
+        }}
+      />
     </Tab.Navigator>
   );
 }
 
 function Rotas() {
   const { usuario, carregando } = useAuth();
+  // Bloqueio biométrico: exigido UMA vez, na abertura do app.
+  // Depois de desbloqueado, nenhuma aba pede de novo.
+  const [precisaBio, setPrecisaBio] = useState(null); // null = verificando
+  const [desbloqueado, setDesbloqueado] = useState(false);
 
-  if (carregando) {
+  useEffect(() => {
+    (async () => {
+      const exigir = (await biometriaAtiva()) && (await biometriaDisponivel());
+      setPrecisaBio(exigir);
+    })();
+  }, []);
+
+  if (carregando || precisaBio === null) {
     return (
       <View style={styles.splash}>
         <ActivityIndicator size="large" color="#fff" />
       </View>
     );
+  }
+
+  if (usuario && precisaBio && !desbloqueado) {
+    return <LockScreen aoDesbloquear={() => setDesbloqueado(true)} />;
   }
 
   return (

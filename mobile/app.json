@@ -10,10 +10,15 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.distribuidora.fluxocaixa"
+      "bundleIdentifier": "com.distribuidora.fluxocaixa",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Desbloqueie o app com Face ID ao abrir.",
+        "NSMicrophoneUsageDescription": "Grave mensagens de voz no chat da equipe."
+      }
     },
     "android": {
-      "package": "com.distribuidora.fluxocaixa"
+      "package": "com.distribuidora.fluxocaixa",
+      "permissions": ["RECORD_AUDIO", "USE_BIOMETRIC", "USE_FINGERPRINT"]
     },
     "assetBundlePatterns": ["**/*"]
   }

@@ -61,6 +61,11 @@ class AcaoAudit(str, enum.Enum):
     conciliar = "conciliar"
 
 
+class TipoMensagem(str, enum.Enum):
+    texto = "texto"
+    audio = "audio"
+
+
 class StatusConciliacao(str, enum.Enum):
     pendente = "pendente"        # importada, ainda não processada
     conciliado = "conciliado"    # casou com um movimento do caixa
@@ -259,6 +264,19 @@ class TransacaoBancaria(Base):
 
     conexao = relationship("ConexaoBancaria")
     movimento = relationship("Movimento")
+
+
+class MensagemChat(Base):
+    """Chat interno da equipe — mensagens de texto ou áudio (base64)."""
+    __tablename__ = "mensagens_chat"
+
+    id = Column(GUID, primary_key=True, default=gen_uuid)
+    usuario_id = Column(GUID, ForeignKey("usuarios.id"), nullable=False)
+    usuario_nome = Column(String(150), nullable=False)
+    tipo = Column(SAEnum(TipoMensagem), default=TipoMensagem.texto, nullable=False)
+    conteudo = Column(Text, nullable=False)          # texto, ou áudio em base64
+    duracao_seg = Column(Integer, nullable=True)     # duração do áudio
+    criado_em = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class AuditLog(Base):

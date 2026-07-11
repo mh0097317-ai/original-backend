@@ -101,4 +101,15 @@ export const api = {
     }),
   ignorarTransacao: (id) =>
     request(`/api/conciliacao/transacoes/${id}/ignorar`, { method: 'POST' }),
+
+  // Chat da equipe
+  mensagensChat: (skip = 0) => request(`/api/chat/mensagens?skip=${skip}&limit=50`),
+  enviarMensagemTexto: (conteudo) =>
+    request('/api/chat/mensagens', { method: 'POST', body: { tipo: 'texto', conteudo } }),
+  enviarMensagemAudio: (base64, duracaoSeg) =>
+    request('/api/chat/mensagens', {
+      method: 'POST',
+      body: { tipo: 'audio', conteudo: base64, duracao_seg: duracaoSeg },
+    }),
+  apagarMensagem: (id) => request(`/api/chat/mensagens/${id}`, { method: 'DELETE' }),
 };

@@ -1,10 +1,14 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity,
+  Switch, Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import {
+  biometriaAtiva, biometriaDisponivel, definirBiometria, autenticarBiometria,
+} from '../biometria';
 import { colors, spacing, formatBRL } from '../theme';
 
 export default function DashboardScreen() {
@@ -14,6 +18,28 @@ export default function DashboardScreen() {
   const [filial, setFilial] = useState(null);
   const [erro, setErro] = useState(null);
   const [atualizando, setAtualizando] = useState(false);
+  const [bioDisponivel, setBioDisponivel] = useState(false);
+  const [bioAtiva, setBioAtiva] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setBioDisponivel(await biometriaDisponivel());
+      setBioAtiva(await biometriaAtiva());
+    })();
+  }, []);
+
+  async function alternarBiometria(valor) {
+    if (valor) {
+      // confirma a biometria antes de ativar, para não trancar o usuário
+      const ok = await autenticarBiometria();
+      if (!ok) {
+        Alert.alert('Face ID', 'Autenticação não confirmada — o desbloqueio não foi ativado.');
+        return;
+      }
+    }
+    await definirBiometria(valor);
+    setBioAtiva(valor);
+  }
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -86,6 +112,20 @@ export default function DashboardScreen() {
           <Text style={styles.contaSaldo}>{formatBRL(c.saldo)}</Text>
         </View>
       ))}
+
+      {bioDisponivel && (
+        <View style={styles.linhaConta}>
+          <View>
+            <Text style={styles.contaNome}>🔐 Entrar com Face ID</Text>
+            <Text style={styles.contaTipo}>Pede o desbloqueio só ao abrir o app</Text>
+          </View>
+          <Switch
+            value={bioAtiva}
+            onValueChange={alternarBiometria}
+            trackColor={{ true: colors.accent }}
+          />
+        </View>
+      )}
 
       {resumo && (
         <View style={styles.gridResumo}>
