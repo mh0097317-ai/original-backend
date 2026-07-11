@@ -140,6 +140,80 @@ async def test_lancar_divergente_no_caixa(client):
     assert r.json()["saldo_total"] == 950.0
 
 
+async def _lancar_movimento(client, token, conta_id, tipo, valor, descricao, data):
+    r = await client.post("/api/movimentos", headers=auth(token), json={
+        "conta_id": conta_id, "tipo": tipo, "categoria": "vendas" if tipo == "entrada" else "despesa_operacional",
+        "descricao": descricao, "valor": valor,
+        "data_movimento": data.isoformat(), "data_competencia": data.isoformat(),
+    })
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+async def test_conciliacao_prefere_data_mais_proxima(client):
+    """Com dois movimentos do mesmo valor, cada transação casa com o de data mais próxima."""
+    token = await _bootstrap_admin(client)
+    filial_id = await _criar_filial(client, token)
+    conta_id = await _criar_conta(client, token, filial_id, "1000.00")
+    conexao_id = await _setup_conexao(client, token, conta_id)
+
+    agora = datetime.utcnow()
+    antes = agora - timedelta(days=2)
+
+    # Dois movimentos idênticos em valor, datas diferentes
+    mov_antigo = await _lancar_movimento(client, token, conta_id, "entrada", "100.00", "Venda lote A", antes)
+    mov_novo = await _lancar_movimento(client, token, conta_id, "entrada", "100.00", "Venda lote B", agora)
+
+    # Extrato: transação na data antiga deve casar com o movimento antigo
+    usar_pluggy_fake([
+        {"id": "trx-antiga", "description": "TED RECEBIDA",
+         "amount": 100.00, "type": "CREDIT", "date": antes.isoformat() + "Z"},
+        {"id": "trx-nova", "description": "TED RECEBIDA",
+         "amount": 100.00, "type": "CREDIT", "date": agora.isoformat() + "Z"},
+    ])
+    await client.post(
+        f"/api/conciliacao/conexoes/{conexao_id}/importar", headers=auth(token),
+        json={"data_inicio": (agora - timedelta(days=7)).isoformat(),
+              "data_fim": agora.isoformat()},
+    )
+    r = await client.post(f"/api/conciliacao/conexoes/{conexao_id}/conciliar", headers=auth(token))
+    assert r.json()["conciliadas"] == 2
+
+    r = await client.get("/api/conciliacao/transacoes", headers=auth(token))
+    por_pluggy_id = {t["pluggy_transaction_id"]: t for t in r.json()["items"]}
+    assert por_pluggy_id["trx-antiga"]["movimento_id"] == mov_antigo
+    assert por_pluggy_id["trx-nova"]["movimento_id"] == mov_novo
+
+
+async def test_conciliacao_desempata_por_descricao(client):
+    """Mesmo valor e mesma data: vence o movimento com descrição mais parecida."""
+    token = await _bootstrap_admin(client)
+    filial_id = await _criar_filial(client, token)
+    conta_id = await _criar_conta(client, token, filial_id, "1000.00")
+    conexao_id = await _setup_conexao(client, token, conta_id)
+
+    agora = datetime.utcnow()
+    mov_aluguel = await _lancar_movimento(client, token, conta_id, "saida", "250.00", "Aluguel galpão", agora)
+    mov_fornec = await _lancar_movimento(client, token, conta_id, "saida", "250.00", "Fornecedor ABC pedido 42", agora)
+
+    usar_pluggy_fake([
+        {"id": "trx-abc", "description": "PIX FORNECEDOR ABC",
+         "amount": -250.00, "type": "DEBIT", "date": agora.isoformat() + "Z"},
+    ])
+    await client.post(
+        f"/api/conciliacao/conexoes/{conexao_id}/importar", headers=auth(token),
+        json={"data_inicio": (agora - timedelta(days=7)).isoformat(),
+              "data_fim": agora.isoformat()},
+    )
+    r = await client.post(f"/api/conciliacao/conexoes/{conexao_id}/conciliar", headers=auth(token))
+    assert r.json()["conciliadas"] == 1
+
+    r = await client.get("/api/conciliacao/transacoes?situacao=conciliado", headers=auth(token))
+    trans = r.json()["items"][0]
+    assert trans["movimento_id"] == mov_fornec
+    assert trans["movimento_id"] != mov_aluguel
+
+
 async def test_visualizador_nao_concilia(client):
     token = await _bootstrap_admin(client)
     filial_id = await _criar_filial(client, token)

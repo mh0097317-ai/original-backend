@@ -5,6 +5,7 @@ Fluxo: conectar banco (widget Pluggy Connect) → vincular conta →
 importar extrato → conciliar automaticamente → resolver divergências
 (conciliar manual, lançar no caixa ou ignorar).
 """
+import re
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -161,6 +162,35 @@ async def importar_extrato(
 
 
 # ── Motor de conciliação automática ───────────────────────
+def _similaridade(a: str, b: str) -> float:
+    """Semelhança de descrições por sobreposição de palavras (Jaccard, 0..1)."""
+    ta = set(re.findall(r"\w+", (a or "").lower()))
+    tb = set(re.findall(r"\w+", (b or "").lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _escolher_melhor(trans: TransacaoBancaria, candidatos: list[Movimento],
+                     janela: timedelta) -> Movimento | None:
+    """Melhor movimento para a transação: data mais próxima, depois descrição
+    mais parecida, depois o mais antigo (desempate determinístico)."""
+    elegiveis = [
+        m for m in candidatos
+        if m.tipo == trans.tipo
+        and m.valor == trans.valor
+        and abs(m.data_movimento - trans.data) <= janela
+    ]
+    if not elegiveis:
+        return None
+    return min(elegiveis, key=lambda m: (
+        abs(m.data_movimento - trans.data),
+        -_similaridade(m.descricao, trans.descricao),
+        m.data_movimento,
+        m.id,
+    ))
+
+
 @router.post("/conexoes/{conexao_id}/conciliar", response_model=ConciliacaoResultadoOut)
 async def conciliar_automatico(
     conexao_id: str,
@@ -170,10 +200,11 @@ async def conciliar_automatico(
 ):
     """Casa transações do extrato com movimentos do caixa.
 
-    Critério: mesma conta, mesmo tipo, mesmo valor e data dentro da janela
-    (± janela_dias). Cada movimento só concilia com uma transação. O que
-    sobrar vira 'divergente' — dinheiro que passou no banco sem lançamento
-    no caixa (ou vice-versa).
+    Elegibilidade: mesma conta, mesmo tipo, mesmo valor e data dentro da
+    janela (± janela_dias). Entre os elegíveis vence o de data mais
+    próxima, com desempate por semelhança de descrição. Cada movimento só
+    concilia com uma transação. O que sobrar vira 'divergente' — dinheiro
+    que passou no banco sem lançamento no caixa (ou vice-versa).
     """
     conexao = await _obter_conexao(db, usuario, conexao_id)
 
@@ -204,13 +235,7 @@ async def conciliar_automatico(
     conciliadas = divergentes = 0
     janela = timedelta(days=janela_dias)
     for trans in pendentes:
-        match = None
-        for mov in candidatos:
-            if (mov.tipo == trans.tipo
-                    and mov.valor == trans.valor
-                    and abs(mov.data_movimento - trans.data) <= janela):
-                match = mov
-                break
+        match = _escolher_melhor(trans, candidatos, janela)
         if match:
             trans.status_conciliacao = StatusConciliacao.conciliado
             trans.movimento_id = match.id
