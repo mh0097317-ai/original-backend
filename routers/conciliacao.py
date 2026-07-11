@@ -42,6 +42,25 @@ async def connect_token(
     return ConnectTokenOut(access_token=token)
 
 
+@router.get("/pluggy/contas")
+async def contas_do_item_pluggy(
+    item_id: str,
+    usuario: Usuario = Depends(requer_gestor),
+    pluggy: PluggyClient = Depends(get_pluggy_client),
+):
+    """Contas bancárias encontradas no item recém-conectado (para vincular)."""
+    contas = await pluggy.contas(item_id)
+    return [
+        {
+            "id": c.get("id"),
+            "nome": c.get("name") or "Conta bancária",
+            "tipo": c.get("type"),
+            "numero": c.get("number"),
+        }
+        for c in contas
+    ]
+
+
 @router.post("/conexoes", response_model=ConexaoBancariaOut, status_code=status.HTTP_201_CREATED)
 async def criar_conexao(
     dados: ConexaoBancariaCriar,

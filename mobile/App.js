@@ -13,6 +13,7 @@ import NovoMovimentoScreen from './src/screens/NovoMovimentoScreen';
 import ContasScreen from './src/screens/ContasScreen';
 import ConciliacaoScreen from './src/screens/ConciliacaoScreen';
 import ChatScreen from './src/screens/ChatScreen';
+import ConectarBancoScreen from './src/screens/ConectarBancoScreen';
 import LockScreen from './src/screens/LockScreen';
 import { biometriaAtiva, biometriaDisponivel } from './src/biometria';
 import { colors } from './src/theme';
@@ -113,6 +114,15 @@ function Rotas() {
             component={NovoMovimentoScreen}
             options={{
               title: 'Novo movimento',
+              headerStyle: { backgroundColor: colors.primary },
+              headerTintColor: '#fff',
+            }}
+          />
+          <Stack.Screen
+            name="ConectarBanco"
+            component={ConectarBancoScreen}
+            options={{
+              title: 'Conectar banco',
               headerStyle: { backgroundColor: colors.primary },
               headerTintColor: '#fff',
             }}

@@ -214,6 +214,21 @@ async def test_conciliacao_desempata_por_descricao(client):
     assert trans["movimento_id"] != mov_aluguel
 
 
+async def test_pagina_conectar_banco(client):
+    r = await client.get("/conectar-banco")
+    assert r.status_code == 200
+    assert "PluggyConnect" in r.text
+    assert "connect_token" in r.text
+
+
+async def test_listar_contas_do_item(client):
+    token = await _bootstrap_admin(client)
+    usar_pluggy_fake([])
+    r = await client.get("/api/conciliacao/pluggy/contas?item_id=item-1", headers=auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json() == [{"id": "acc-1", "nome": "Conta Corrente", "tipo": None, "numero": None}]
+
+
 async def test_visualizador_nao_concilia(client):
     token = await _bootstrap_admin(client)
     filial_id = await _criar_filial(client, token)

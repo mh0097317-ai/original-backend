@@ -83,6 +83,10 @@ export const api = {
   receberConta: (id) => request(`/api/contas-receber/${id}/receber`, { method: 'POST' }),
 
   // Conciliação bancária (Pluggy)
+  connectToken: () => request('/api/conciliacao/connect-token', { method: 'POST' }),
+  contasPluggy: (itemId) => request(`/api/conciliacao/pluggy/contas?item_id=${itemId}`),
+  criarConexaoBancaria: (payload) =>
+    request('/api/conciliacao/conexoes', { method: 'POST', body: payload }),
   conexoesBancarias: () => request('/api/conciliacao/conexoes?limit=50'),
   resumoConciliacao: () => request('/api/conciliacao/resumo'),
   transacoesBancarias: (situacao) =>

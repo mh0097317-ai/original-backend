@@ -23,7 +23,7 @@ const CATEGORIAS_LANCAR = [
   { key: 'outro', label: 'Outro' },
 ];
 
-export default function ConciliacaoScreen() {
+export default function ConciliacaoScreen({ navigation }) {
   const { usuario } = useAuth();
   const [aba, setAba] = useState('divergente');
   const [resumo, setResumo] = useState(null);
@@ -66,7 +66,11 @@ export default function ConciliacaoScreen() {
       if (conexoes.items.length === 0) {
         Alert.alert(
           'Nenhum banco conectado',
-          'Conecte o banco da empresa via Pluggy no painel web para começar a conciliar.'
+          'Conecte o banco da empresa para começar a conciliar.',
+          [
+            { text: 'Agora não', style: 'cancel' },
+            { text: 'Conectar banco', onPress: () => navigation.navigate('ConectarBanco') },
+          ]
         );
         return;
       }
@@ -207,11 +211,23 @@ export default function ConciliacaoScreen() {
       )}
 
       {podeEditar && (
-        <TouchableOpacity style={styles.botaoSync} onPress={sincronizar} disabled={sincronizando}>
-          {sincronizando
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.botaoSyncTexto}>🔄 Sincronizar com o banco</Text>}
-        </TouchableOpacity>
+        <View style={styles.linhaBotoes}>
+          <TouchableOpacity
+            style={[styles.botaoSync, { flex: 2 }]}
+            onPress={sincronizar}
+            disabled={sincronizando}
+          >
+            {sincronizando
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.botaoSyncTexto}>🔄 Sincronizar</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.botaoConectar}
+            onPress={() => navigation.navigate('ConectarBanco')}
+          >
+            <Text style={styles.botaoConectarTexto}>🔗 Conectar banco</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       <View style={styles.abas}>
@@ -253,11 +269,17 @@ const styles = StyleSheet.create({
   stat: { flex: 1, alignItems: 'center' },
   statNum: { fontSize: 22, fontWeight: '700' },
   statLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  linhaBotoes: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   botaoSync: {
     backgroundColor: colors.accent, borderRadius: 10,
-    padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm,
+    padding: spacing.md, alignItems: 'center',
   },
   botaoSyncTexto: { color: '#fff', fontWeight: '600' },
+  botaoConectar: {
+    flex: 1, borderWidth: 1, borderColor: colors.accent, borderRadius: 10,
+    padding: spacing.md, alignItems: 'center', justifyContent: 'center',
+  },
+  botaoConectarTexto: { color: colors.accent, fontWeight: '600', fontSize: 13 },
   abas: {
     flexDirection: 'row', backgroundColor: colors.card,
     borderRadius: 10, padding: 4, marginBottom: spacing.md,
