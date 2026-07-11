@@ -81,4 +81,24 @@ export const api = {
   pagarConta: (id) => request(`/api/contas-pagar/${id}/pagar`, { method: 'POST' }),
   contasReceber: (skip = 0) => request(`/api/contas-receber?recebido=false&skip=${skip}&limit=25`),
   receberConta: (id) => request(`/api/contas-receber/${id}/receber`, { method: 'POST' }),
+
+  // Conciliação bancária (Pluggy)
+  conexoesBancarias: () => request('/api/conciliacao/conexoes?limit=50'),
+  resumoConciliacao: () => request('/api/conciliacao/resumo'),
+  transacoesBancarias: (situacao) =>
+    request(`/api/conciliacao/transacoes?limit=100${situacao ? `&situacao=${situacao}` : ''}`),
+  importarExtrato: (conexaoId, dataInicio, dataFim) =>
+    request(`/api/conciliacao/conexoes/${conexaoId}/importar`, {
+      method: 'POST',
+      body: { data_inicio: dataInicio, data_fim: dataFim },
+    }),
+  conciliarAutomatico: (conexaoId) =>
+    request(`/api/conciliacao/conexoes/${conexaoId}/conciliar`, { method: 'POST' }),
+  lancarTransacao: (id, categoria) =>
+    request(`/api/conciliacao/transacoes/${id}/lancar`, {
+      method: 'POST',
+      body: { categoria },
+    }),
+  ignorarTransacao: (id) =>
+    request(`/api/conciliacao/transacoes/${id}/ignorar`, { method: 'POST' }),
 };

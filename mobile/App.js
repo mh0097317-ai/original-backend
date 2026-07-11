@@ -11,6 +11,7 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import MovimentosScreen from './src/screens/MovimentosScreen';
 import NovoMovimentoScreen from './src/screens/NovoMovimentoScreen';
 import ContasScreen from './src/screens/ContasScreen';
+import ConciliacaoScreen from './src/screens/ConciliacaoScreen';
 import { colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
@@ -51,6 +52,14 @@ function Tabs() {
         options={{
           title: 'Pagar / Receber',
           tabBarIcon: (p) => <TabIcon emoji="📅" {...p} />,
+        }}
+      />
+      <Tab.Screen
+        name="Conciliacao"
+        component={ConciliacaoScreen}
+        options={{
+          title: 'Conciliação',
+          tabBarIcon: (p) => <TabIcon emoji="🏦" {...p} />,
         }}
       />
     </Tab.Navigator>

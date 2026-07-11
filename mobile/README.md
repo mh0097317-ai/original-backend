@@ -10,7 +10,10 @@ Roda em **Android e iOS** com o mesmo código.
 - **Movimentos**: lista com entradas/saídas, lançamento rápido (FAB) e
   cancelamento com reversão de saldo (segurar o item)
 - **Pagar / Receber**: contas em aberto com baixa em um toque
-- Visualizador vê tudo, mas não consegue lançar/baixar (RBAC respeitado na UI e na API)
+- **Conciliação bancária**: sincroniza o extrato do banco (Pluggy/Open Finance),
+  mostra conciliadas × divergentes e resolve divergência na hora — lançar no
+  caixa com categoria ou ignorar
+- Visualizador vê tudo, mas não consegue lançar/baixar/conciliar (RBAC respeitado na UI e na API)
 
 ## Como rodar
 
@@ -59,5 +62,6 @@ mobile/
         ├── DashboardScreen.js
         ├── MovimentosScreen.js
         ├── NovoMovimentoScreen.js
-        └── ContasScreen.js
+        ├── ContasScreen.js
+        └── ConciliacaoScreen.js
 ```
